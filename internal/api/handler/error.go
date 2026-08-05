@@ -49,6 +49,14 @@ func NewBadRequest(message string, cause error) *APIError {
 	}
 }
 
+func NewForbidden(resource, name string) *APIError {
+	return &APIError{
+		Status:  http.StatusForbidden,
+		Code:    "forbidden",
+		Message: "access to " + resource + " \"" + name + "\" is not allowed",
+	}
+}
+
 func NewInternal(cause error) *APIError {
 	return &APIError{
 		Status:  http.StatusInternalServerError,
