@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 
 	konfidence "github.com/konfidence-project/konfidence/api/v1alpha1"
 	"github.com/konfidence-project/konfidence/internal/landscape"
@@ -16,16 +15,29 @@ import (
 	"github.com/konfidence-project/konfidence/internal/vectorpromotion"
 	pkgcmd "github.com/konfidence-project/konfidence/pkg/cmd"
 	"github.com/konfidence-project/konfidence/pkg/ocm/crypto"
+	"github.com/konfidence-project/konfidence/pkg/operator"
 	"github.com/spf13/cobra"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
+
+// controllerDomains lists every controller domain wired into the binary,
+// sorted by name.
+func controllerDomains() []operator.Domain {
+	return []operator.Domain{
+		landscape.Domain(),
+		project.Domain(),
+		stage.Domain(),
+		stageconfiguration.Domain(),
+		taskorchestration.Domain(),
+		vectoractivation.Domain(),
+		vectorassembly.Domain(),
+		vectordeployment.Domain(),
+		vectorpromotion.Domain(),
+	}
+}
 
 func startOperator(_ *cobra.Command, _ []string) error {
 	mgrOptions := ctrl.Options{
@@ -53,22 +65,29 @@ func startOperator(_ *cobra.Command, _ []string) error {
 	signalContext, cancel := context.WithCancel(ctrl.SetupSignalHandler())
 	defer cancel()
 
-	controllerSetups := buildControllerSetups(signalContext, cancel, mgr)
+	domains := controllerDomains()
 
-	enabled, err := pkgcmd.FilterEnabledControllers(controllersSpec, controllerSetups)
+	enabled, err := pkgcmd.FilterEnabledControllers(controllersSpec, operator.Names(domains))
 	if err != nil {
 		setupLog.Error(err, "invalid --controllers flag")
 		return err
 	}
 
-	for name, setup := range controllerSetups {
-		if !enabled[name] {
-			setupLog.Info("controller disabled", "controller", name)
+	deps := operator.Deps{
+		Mgr:      mgr,
+		Logger:   setupLog,
+		Limiter:  crypto.NewLimiter(0),
+		Shutdown: cancel,
+	}
+
+	for _, domain := range domains {
+		if !enabled[domain.Name] {
+			setupLog.Info("controller disabled", "controller", domain.Name)
 			continue
 		}
-		setupLog.Info("setting up controller", "controller", name)
-		if err := setup(); err != nil {
-			setupLog.Error(err, "unable to set up controller", "controller", name)
+		setupLog.Info("setting up controller", "controller", domain.Name)
+		if err := domain.Setup(signalContext, deps); err != nil {
+			setupLog.Error(err, "unable to set up controller", "controller", domain.Name)
 			return err
 		}
 	}
@@ -77,8 +96,28 @@ func startOperator(_ *cobra.Command, _ []string) error {
 
 	if enableWebhooks {
 		setupLog.Info("setting up webhooks")
+
+		// Project namespace resources
 		if err := konfidence.SetupLandscapeWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to set up Landscape webhook")
+			return err
+		}
+		if err := konfidence.SetupVectorTemplateWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to set up VectorTemplate webhook")
+			return err
+		}
+		if err := konfidence.SetupVectorPromotionConfigWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to set up VectorPromotionConfig webhook")
+			return err
+		}
+		if err := konfidence.SetupStageConfigurationWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to set up StageConfiguration webhook")
+			return err
+		}
+
+		// Landscape namespace resources
+		if err := konfidence.SetupStageWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to set up Stage webhook")
 			return err
 		}
 	} else {
@@ -101,84 +140,4 @@ func startOperator(_ *cobra.Command, _ []string) error {
 	}
 
 	return nil
-}
-
-// buildControllerSetups returns the registry of controller setup closures.
-func buildControllerSetups(ctx context.Context, cancel context.CancelFunc, mgr manager.Manager) map[string]func() error {
-	limiter := crypto.NewLimiter(0)
-
-	setups := map[string]func() error{
-		stage.OperatorFlagName: func() error {
-			if err := stage.SetupControllers(mgr, setupLog); err != nil {
-				return err
-			}
-			gc := stage.NewGarbageCollector(mgr)
-			setupLog.Info("Starting stageVersion garbage collector")
-			go func() {
-				if err := gc.Start(ctx); err != nil {
-					cancel()
-					setupLog.Error(err, "An error occurred while starting/running the stageVersion garbage collector")
-				}
-			}()
-			return nil
-		},
-		landscape.OperatorFlagName: func() error {
-			return landscape.SetupControllers(mgr, landscape.Options{})
-		},
-		taskorchestration.OperatorFlagName: func() error {
-			return taskorchestration.SetupControllers(mgr, setupLog)
-		},
-		vectoractivation.OperatorFlagName: func() error {
-			return vectoractivation.SetupControllers(mgr, setupLog)
-		},
-		vectordeployment.OperatorFlagName: func() error {
-			registrySecret, err := resolveRegistryCredentials(ctx, mgr)
-			if err != nil {
-				setupLog.Error(err, "unable to load registry credentials secret")
-				return err
-			}
-			return vectordeployment.SetupControllers(ctx, mgr, setupLog, vectordeployment.Options{
-				OCISecret: registrySecret,
-				Limiter:   limiter,
-			})
-		},
-		project.OperatorFlagName: func() error {
-			return project.SetupControllers(mgr, project.Options{})
-		},
-		stageconfiguration.OperatorFlagName: func() error {
-			return stageconfiguration.SetupControllers(mgr, stageconfiguration.Options{
-				Limiter: limiter,
-			})
-		},
-		vectorassembly.OperatorFlagName: func() error {
-			return vectorassembly.SetupControllers(mgr, vectorassembly.Options{
-				Limiter: limiter,
-			})
-		},
-		vectorpromotion.OperatorFlagName: func() error {
-			return vectorpromotion.SetupControllers(ctx, mgr, vectorpromotion.Options{
-				Limiter: limiter,
-			})
-		},
-	}
-
-	return setups
-}
-
-// resolveRegistryCredentials loads the registry credentials secret from the k8s cluster.
-// Returns nil if the secret is not found.
-func resolveRegistryCredentials(ctx context.Context, mgr manager.Manager) (*corev1.Secret, error) {
-	const secretName = "registry-credentials"
-	const secretNamespace = "konfidence-system"
-
-	secret := &corev1.Secret{}
-	err := mgr.GetAPIReader().Get(ctx, types.NamespacedName{Namespace: secretNamespace, Name: secretName}, secret)
-	if apierrors.IsNotFound(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get secret %s/%s: %w", secretNamespace, secretName, err)
-	}
-
-	return secret, nil
 }
