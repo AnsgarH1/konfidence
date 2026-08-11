@@ -85,14 +85,14 @@ var _ = Describe("ProjectHandler", func() {
 			Expect(item.Name).To(Equal("Development"))
 		})
 
-		It("returns 403 when project does not exist", func() {
+		It("returns 404 when project does not exist", func() {
 			h := handler.NewServerHandler(fakeProjectK8s())
 
 			resp, err := h.ListLandscapes(context.Background(), openapi.ListLandscapesRequestObject{ProjectId: "nonexistent"})
 			Expect(err).NotTo(HaveOccurred())
 
-			_, is403 := resp.(openapi.ListLandscapes403JSONResponse)
-			Expect(is403).To(BeTrue())
+			_, is404 := resp.(openapi.ListLandscapes404JSONResponse)
+			Expect(is404).To(BeTrue())
 		})
 
 		It("only returns landscapes belonging to the requested project", func() {

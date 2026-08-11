@@ -2,12 +2,13 @@ package handler // nolint
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
-	konfidence "github.com/konfidence-project/konfidence/api/v1alpha1"
+	"github.com/konfidence-project/konfidence/internal/api/mapper"
 	"github.com/konfidence-project/konfidence/internal/api/openapi"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
+	landscapedomain "github.com/konfidence-project/konfidence/internal/landscape"
+	projectdomain "github.com/konfidence-project/konfidence/internal/project"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -23,30 +24,26 @@ func (h *ProjectHandler) ListLandscapes(ctx context.Context, req openapi.ListLan
 		return nil, NewInternal(err)
 	}
 
-	var project konfidence.Project
-	if err := k8s.Get(ctx, types.NamespacedName{Name: req.ProjectId}, &project); err != nil {
-		if apierrors.IsNotFound(err) {
-			return openapi.ListLandscapes403JSONResponse{}, nil
+	project, err := projectdomain.Get(ctx, k8s, req.ProjectId)
+	if err != nil {
+		if errors.Is(err, projectdomain.ErrNotFound) {
+			return openapi.ListLandscapes404JSONResponse{}, nil
 		}
 		return nil, NewInternal(fmt.Errorf("getting project %q: %w", req.ProjectId, err))
 	}
 
-	projectNamespace := project.Status.Namespace
-	if projectNamespace == "" {
+	if project.Status.Namespace == "" {
 		return nil, NewInternal(fmt.Errorf("project %q has no namespace yet", req.ProjectId))
 	}
 
-	var list konfidence.LandscapeList
-	if err := k8s.List(ctx, &list, client.InNamespace(projectNamespace)); err != nil {
-		return nil, NewInternal(fmt.Errorf("listing landscapes for project %q: %w", req.ProjectId, err))
+	landscapes, err := landscapedomain.ListForProject(ctx, k8s, project.Status.Namespace)
+	if err != nil {
+		return nil, NewInternal(err)
 	}
 
-	data := make([]openapi.Landscape, len(list.Items))
-	for i, l := range list.Items {
-		data[i] = openapi.Landscape{
-			Id:   l.Name,
-			Name: l.Spec.DisplayName,
-		}
+	data := make([]openapi.Landscape, len(landscapes))
+	for i, l := range landscapes {
+		data[i] = mapper.ToLandscapeResponse(l)
 	}
 
 	return openapi.ListLandscapes200JSONResponse{Data: data}, nil
