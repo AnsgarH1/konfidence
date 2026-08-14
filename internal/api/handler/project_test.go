@@ -2,11 +2,12 @@ package handler_test
 
 import (
 	"context"
-	"fmt"
 
 	konfidence "github.com/konfidence-project/konfidence/api/v1alpha1"
 	"github.com/konfidence-project/konfidence/internal/api/handler"
 	"github.com/konfidence-project/konfidence/internal/api/openapi"
+	landscapedomain "github.com/konfidence-project/konfidence/internal/landscape"
+	projectdomain "github.com/konfidence-project/konfidence/internal/project"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,9 +24,8 @@ func newProjectTestScheme() *runtime.Scheme {
 	return s
 }
 
-func fakeProjectK8s(objs ...client.Object) func() (client.Client, error) {
-	c := fake.NewClientBuilder().WithScheme(newProjectTestScheme()).WithObjects(objs...).WithStatusSubresource(&konfidence.Project{}).Build()
-	return func() (client.Client, error) { return c, nil }
+func fakeProjectK8s(objs ...client.Object) client.Client {
+	return fake.NewClientBuilder().WithScheme(newProjectTestScheme()).WithObjects(objs...).WithStatusSubresource(&konfidence.Project{}).Build()
 }
 
 func projectFixture(name, namespace string) *konfidence.Project {
@@ -42,13 +42,17 @@ func landscapeFixture(name, namespace, displayName string) *konfidence.Landscape
 	}
 }
 
+func serverHandlerWith(objs ...client.Object) *handler.ServerHandler {
+	return handler.NewServerHandler(fakeProjectK8s(objs...))
+}
+
 var _ = Describe("ProjectHandler", func() {
 	Describe("ListLandscapes", func() {
 		It("returns all landscapes for a project", func() {
 			project := projectFixture("my-project", "kden-p-my-project")
 			l1 := landscapeFixture("dev", "kden-p-my-project", "Dev")
 			l2 := landscapeFixture("staging", "kden-p-my-project", "Staging")
-			h := handler.NewServerHandler(fakeProjectK8s(project, l1, l2))
+			h := serverHandlerWith(project, l1, l2)
 
 			resp, err := h.ListLandscapes(context.Background(), openapi.ListLandscapesRequestObject{ProjectId: "my-project"})
 			Expect(err).NotTo(HaveOccurred())
@@ -56,14 +60,12 @@ var _ = Describe("ProjectHandler", func() {
 			ok, is200 := resp.(openapi.ListLandscapes200JSONResponse)
 			Expect(is200).To(BeTrue())
 			Expect(ok.Data).To(HaveLen(2))
-
-			ids := []string{ok.Data[0].Id, ok.Data[1].Id}
-			Expect(ids).To(ConsistOf("dev", "staging"))
+			Expect([]string{ok.Data[0].Id, ok.Data[1].Id}).To(ConsistOf("dev", "staging"))
 		})
 
 		It("returns an empty list when project has no landscapes", func() {
 			project := projectFixture("empty-project", "kden-p-empty-project")
-			h := handler.NewServerHandler(fakeProjectK8s(project))
+			h := serverHandlerWith(project)
 
 			resp, err := h.ListLandscapes(context.Background(), openapi.ListLandscapesRequestObject{ProjectId: "empty-project"})
 			Expect(err).NotTo(HaveOccurred())
@@ -75,7 +77,7 @@ var _ = Describe("ProjectHandler", func() {
 		It("maps landscape fields correctly", func() {
 			project := projectFixture("my-project", "kden-p-my-project")
 			l := landscapeFixture("dev", "kden-p-my-project", "Development")
-			h := handler.NewServerHandler(fakeProjectK8s(project, l))
+			h := serverHandlerWith(project, l)
 
 			resp, err := h.ListLandscapes(context.Background(), openapi.ListLandscapesRequestObject{ProjectId: "my-project"})
 			Expect(err).NotTo(HaveOccurred())
@@ -86,20 +88,22 @@ var _ = Describe("ProjectHandler", func() {
 		})
 
 		It("returns 404 when project does not exist", func() {
-			h := handler.NewServerHandler(fakeProjectK8s())
+			h := serverHandlerWith()
 
 			resp, err := h.ListLandscapes(context.Background(), openapi.ListLandscapesRequestObject{ProjectId: "nonexistent"})
 			Expect(err).NotTo(HaveOccurred())
 
-			_, is404 := resp.(openapi.ListLandscapes404JSONResponse)
+			r, is404 := resp.(openapi.ListLandscapes404JSONResponse)
 			Expect(is404).To(BeTrue())
+			Expect(r.Error.Code).To(Equal("not_found"))
+			Expect(r.Error.Message).To(ContainSubstring("nonexistent"))
 		})
 
 		It("only returns landscapes belonging to the requested project", func() {
 			project := projectFixture("project-a", "kden-p-project-a")
 			lA := landscapeFixture("dev", "kden-p-project-a", "Dev A")
 			lB := landscapeFixture("dev", "kden-p-project-b", "Dev B")
-			h := handler.NewServerHandler(fakeProjectK8s(project, lA, lB))
+			h := serverHandlerWith(project, lA, lB)
 
 			resp, err := h.ListLandscapes(context.Background(), openapi.ListLandscapesRequestObject{ProjectId: "project-a"})
 			Expect(err).NotTo(HaveOccurred())
@@ -109,13 +113,14 @@ var _ = Describe("ProjectHandler", func() {
 			Expect(ok.Data[0].Id).To(Equal("dev"))
 		})
 
-		It("returns internal error when k8s client fails", func() {
-			h := handler.NewServerHandler(func() (client.Client, error) {
-				return nil, fmt.Errorf("no kubeconfig")
-			})
+		It("can be tested with custom repository implementations", func() {
+			projects := projectdomain.NewRepository(fakeProjectK8s(projectFixture("p", "kden-p-p")))
+			landscapes := landscapedomain.NewRepository(fakeProjectK8s(landscapeFixture("dev", "kden-p-p", "Dev")))
+			h := handler.NewServerHandlerWithRepos(projects, landscapes)
 
-			_, err := h.ListLandscapes(context.Background(), openapi.ListLandscapesRequestObject{ProjectId: "my-project"})
-			Expect(err).To(HaveOccurred())
+			resp, err := h.ListLandscapes(context.Background(), openapi.ListLandscapesRequestObject{ProjectId: "p"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.(openapi.ListLandscapes200JSONResponse).Data).To(HaveLen(1))
 		})
 	})
 })

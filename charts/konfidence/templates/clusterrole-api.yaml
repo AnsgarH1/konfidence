@@ -12,6 +12,10 @@ rules:
   verbs: [get, list, watch]
 - apiGroups: [konfidence.cloud]
   resources:
+  - projects
+  - projects/status
+  - landscapes
+  - landscapes/status
   - stageconfigurations
   - stageconfigurations/status
   - vectorpromotionconfigs

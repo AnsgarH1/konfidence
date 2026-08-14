@@ -4,10 +4,9 @@ import (
 	"context"
 
 	"github.com/konfidence-project/konfidence/internal/api/openapi"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type AuthHandler struct{ k8s func() (client.Client, error) }
+type AuthHandler struct{}
 
 func (h *AuthHandler) Login(_ context.Context, _ openapi.LoginRequestObject) (openapi.LoginResponseObject, error) {
 	return nil, nil

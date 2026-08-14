@@ -6,10 +6,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/konfidence-project/konfidence/internal/api/openapi"
+	landscapedomain "github.com/konfidence-project/konfidence/internal/landscape"
+	projectdomain "github.com/konfidence-project/konfidence/internal/project"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func Mount(r chi.Router, _ *slog.Logger, k8s func() (client.Client, error)) {
+func Mount(r chi.Router, _ *slog.Logger, k8s client.Client) {
 	h := NewServerHandler(k8s)
 	errHandler := func(w http.ResponseWriter, r *http.Request, err error) {
 		if apiErr := AsAPIError(err); apiErr != nil {
@@ -27,11 +29,19 @@ func Mount(r chi.Router, _ *slog.Logger, k8s func() (client.Client, error)) {
 	})
 }
 
-func NewServerHandler(k8s func() (client.Client, error)) *ServerHandler {
+func NewServerHandler(k8s client.Client) *ServerHandler {
 	return &ServerHandler{
-		InfoHandler{k8s: k8s},
-		AuthHandler{k8s: k8s},
-		ProjectHandler{k8s: k8s},
+		InfoHandler{},
+		AuthHandler{},
+		newProjectHandler(k8s),
+	}
+}
+
+func NewServerHandlerWithRepos(projects projectdomain.Repository, landscapes landscapedomain.Repository) *ServerHandler {
+	return &ServerHandler{
+		InfoHandler{},
+		AuthHandler{},
+		ProjectHandler{projects: projects, landscapes: landscapes},
 	}
 }
 

@@ -1,6 +1,7 @@
 package router_test
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -15,7 +16,9 @@ var _ = Describe("Router", func() {
 	var h http.Handler
 
 	BeforeEach(func() {
-		h = router.New(slog.Default(), nil)
+		var err error
+		h, err = router.New(context.Background(), slog.Default(), nil)
+		Expect(err).NotTo(HaveOccurred())
 	})
 
 	It("returns 404 for unknown paths", func() {

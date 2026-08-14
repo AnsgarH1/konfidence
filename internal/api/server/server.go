@@ -42,10 +42,16 @@ func (s *Server) Run(ctx context.Context, onAddr ...func(string)) error {
 	}
 
 	srv := &http.Server{
-		Handler:      router.New(s.logger, s.cfg.Scheme, s.mounts...),
+		Handler:      nil,
 		ReadTimeout:  s.cfg.ReadTimeout,
 		WriteTimeout: s.cfg.WriteTimeout,
 	}
+
+	h, err := router.New(ctx, s.logger, s.cfg.Scheme, s.mounts...)
+	if err != nil {
+		return fmt.Errorf("failed to build router: %w", err)
+	}
+	srv.Handler = h
 
 	errCh := make(chan error, 1)
 	go func() {
