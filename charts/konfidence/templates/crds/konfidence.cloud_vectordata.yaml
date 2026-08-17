@@ -70,8 +70,7 @@ spec:
                       from the deployer to later phases of the vector lifecycle.
                     properties:
                       name:
-                        description: Name is a unique identifier for the result within
-                          an ArtifactDeploymentStatus.
+                        description: Name identifies the result.
                         type: string
                       spec:
                         description: Spec contains deployer-specific structured data.
@@ -90,7 +89,8 @@ spec:
                   type: array
                 description: |-
                   DeploymentResults aggregated from underlying ArtifactDeployments, keyed by artifact
-                  component name; the value lists every result emitted by that component.
+                  component name; the value lists every result emitted by that component. Within a
+                  component's list, results are unique by (name, type).
                 type: object
               features:
                 description: Features carries the optional "features" subset of the

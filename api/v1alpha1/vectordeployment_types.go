@@ -83,7 +83,8 @@ type VectorDeploymentStatus struct {
 
 	// DeploymentResults exposes an aggregated view of the deployment results produced
 	// by all underlying ArtifactDeployments. The map key is the artifact component name;
-	// the value lists every result emitted by that ArtifactDeployment.
+	// the value lists every result emitted by that ArtifactDeployment. Within a component's
+	// list, results are unique by (name, type).
 	DeploymentResults map[string][]DeploymentResult `json:"deploymentResults,omitempty"`
 }
 

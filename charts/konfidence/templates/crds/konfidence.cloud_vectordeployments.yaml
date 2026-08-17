@@ -159,8 +159,7 @@ spec:
                       from the deployer to later phases of the vector lifecycle.
                     properties:
                       name:
-                        description: Name is a unique identifier for the result within
-                          an ArtifactDeploymentStatus.
+                        description: Name identifies the result.
                         type: string
                       spec:
                         description: Spec contains deployer-specific structured data.
@@ -180,7 +179,8 @@ spec:
                 description: |-
                   DeploymentResults exposes an aggregated view of the deployment results produced
                   by all underlying ArtifactDeployments. The map key is the artifact component name;
-                  the value lists every result emitted by that ArtifactDeployment.
+                  the value lists every result emitted by that ArtifactDeployment. Within a component's
+                  list, results are unique by (name, type).
                 type: object
               resolvedVectorOcm:
                 description: |-
