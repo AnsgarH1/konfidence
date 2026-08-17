@@ -25,6 +25,10 @@ Kubernetes: `>=1.27.0-0`
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` |  |
+| api.database.maxConnIdleTime | string | `"5m"` |  |
+| api.database.maxConnLifetime | string | `"30m"` |  |
+| api.database.maxConns | int | `10` |  |
+| api.database.minConns | int | `5` |  |
 | api.enabled | bool | `true` |  |
 | api.env | list | `[]` |  |
 | api.extraArgs | list | `[]` |  |
@@ -34,10 +38,25 @@ Kubernetes: `>=1.27.0-0`
 | api.ingress.annotations | object | `{}` |  |
 | api.ingress.className | string | `""` |  |
 | api.ingress.enabled | bool | `false` |  |
-| api.ingress.hosts[0].host | string | `"konfidence-api.example.com"` |  |
+| api.ingress.hosts[0].host | string | `""` |  |
 | api.ingress.hosts[0].paths[0].path | string | `"/"` |  |
 | api.ingress.hosts[0].paths[0].pathType | string | `"Prefix"` |  |
 | api.ingress.tls | list | `[]` |  |
+| api.oidc.allowReturnUrls | list | `[]` |  |
+| api.oidc.authorizationURL | string | `""` |  |
+| api.oidc.clientId | string | `""` |  |
+| api.oidc.clientSecretRef.key | string | `"client-secret"` |  |
+| api.oidc.clientSecretRef.name | string | `""` |  |
+| api.oidc.deviceAuthURL | string | `""` |  |
+| api.oidc.enabled | bool | `true` |  |
+| api.oidc.issuerURL | string | `""` |  |
+| api.oidc.jwksURL | string | `""` |  |
+| api.oidc.pkceEnabled | bool | `true` |  |
+| api.oidc.redirectURL | string | `""` |  |
+| api.oidc.scopes | string | `"openid,profile,email"` |  |
+| api.oidc.stateExpiration | string | `"15m"` |  |
+| api.oidc.tokenURL | string | `""` |  |
+| api.oidc.userInfoURL | string | `""` |  |
 | api.podAnnotations | object | `{}` |  |
 | api.podDisruptionBudget.enabled | bool | `false` |  |
 | api.podDisruptionBudget.maxUnavailable | int | `1` |  |
@@ -54,6 +73,13 @@ Kubernetes: `>=1.27.0-0`
 | api.service.nodePort | string | `""` |  |
 | api.service.port | int | `8090` |  |
 | api.service.type | string | `"ClusterIP"` |  |
+| api.session.cleanupInterval | string | `"15m"` |  |
+| api.session.cookie.httpOnly | bool | `true` |  |
+| api.session.cookie.name | string | `"kden-session"` |  |
+| api.session.cookie.sameSite | string | `"SameSiteStrictMode"` |  |
+| api.session.cookie.secure | bool | `true` |  |
+| api.session.expiry | string | `"12h"` |  |
+| api.session.storageType | string | `"in-memory"` |  |
 | api.volumeMounts | list | `[]` |  |
 | api.volumes | list | `[]` |  |
 | containerSecurityContext.allowPrivilegeEscalation | bool | `false` |  |

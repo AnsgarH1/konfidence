@@ -3,6 +3,7 @@ package vector
 import (
 	"bytes"
 	"context"
+	"slices"
 
 	pkgocm "github.com/konfidence-project/konfidence/pkg/ocm/repository"
 	"ocm.software/open-component-model/bindings/go/oci/compref"
@@ -20,8 +21,7 @@ type OcmPort interface {
 	GetVector(ctx context.Context, vectorRef compref.Ref) (Vector, error)
 
 	// CreateVector creates the specified vector in the repository specified by repoSpec.
-	// After CreateVector returns the vector is retrievable via its alias.
-	CreateVector(ctx context.Context, repoSpec runtime.Typed, vector Vector, alias string) error
+	CreateVector(ctx context.Context, repoSpec runtime.Typed, vector Vector) error
 }
 
 var (
@@ -44,6 +44,17 @@ type Artifact struct {
 
 type VectorConfiguration struct {
 	Content []byte
+}
+
+// Clone returns a deep copy of v. The caller may freely mutate Artifacts and
+// VectorConfig.Content without affecting the original — critical for cache safety.
+func (v Vector) Clone() Vector {
+	v.Artifacts = slices.Clone(v.Artifacts)
+	if v.VectorConfig != nil {
+		cfg := &VectorConfiguration{Content: slices.Clone(v.VectorConfig.Content)}
+		v.VectorConfig = cfg
+	}
+	return v
 }
 
 func HasDrift(currentVector, desiredVector Vector) bool {

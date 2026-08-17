@@ -7,57 +7,53 @@ info:
     HTTP gateway between CLI/UI clients and the Konfidence CRDs.
 
 servers:
-  - url: /api/v1
+  - url: /api
     description: Stage resources (versioned API)
 
+security:
+  - sessionCookie: []
+
 paths:
-  /healthz:
+  /v1/login:
     get:
-      operationId: getHealthStatus
-      summary: Health status endpoint
-      description: Indicates if the api service is healthy
-      tags: [ info ]
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HealthStatus"
-  /readyz:
-    get:
-      operationId: getReadinessStatus
-      summary: Readiness status endpoint
-      description: Indicates if the api service is ready for traffic
-      tags: [ info ]
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ReadinessStatus"
-  /login:
-    get:
-      operationId: login
+      operationId: loginV1
       summary: Initiate OIDC login
       description: >
         Redirects the browser to the IDP authorization endpoint, beginning the
         PKCE auth flow. On successful authentication the IDP redirects back to
         /api/v1/auth/callback.
       tags: [auth]
+      security: []
+      parameters:
+        - name: return_url
+          in: query
+          description: Fully qualified URL to redirect to after login. The URL must be present in the API server allowlist.
+          required: true
+          schema:
+            type: string
+            format: uri
       responses:
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "302":
           description: Redirect to IDP authorization endpoint.
+          headers:
+            Location:
+              description: Redirect url
+              schema:
+                type: string
+        "500":
+          $ref: "#/components/responses/InternalError"
 
-  /auth/callback:
+  /v1/auth/callback:
     get:
-      operationId: authCallback
+      operationId: authCallbackV1
       summary: OIDC callback
       description: >
         Receives the authorization code from the IDP after successful login.
         Exchanges the code for tokens and establishes a session cookie.
       tags: [auth]
+      security: []
       parameters:
         - name: code
           in: query
@@ -72,33 +68,45 @@ paths:
       responses:
         "302":
           description: Redirect to the application after successful authentication.
+          headers:
+            Set-Cookie:
+              description: Contains the session ID.
+              schema:
+                type: string
+            Location:
+              description: Redirect url
+              schema:
+                type: string
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /logout:
+  /v1/logout:
     post:
-      operationId: logout
+      operationId: logoutV1
       summary: Terminate the current session
       description: Clears the session cookie. Requires an active session.
       tags: [auth]
-      security:
-        - sessionCookie: []
       responses:
         "200":
           description: Session terminated successfully.
+          headers:
+            Set-Cookie:
+              description: Removes the session cookie.
+              schema:
+                type: string
         "401":
           $ref: "#/components/responses/Unauthorized"
 
-  /identity:
+  /v1/identity:
     get:
-      operationId: getIdentity
+      operationId: getIdentityV1
       summary: Get the current user identity
       description: Returns identity claims for the authenticated session.
       tags: [auth]
-      security:
-        - sessionCookie: []
       responses:
         "200":
           description: OK
@@ -111,12 +119,13 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /exchange:
+  /v1/exchange:
     post:
-      operationId: postExchangeCode
+      operationId: postExchangeCodeV1
       summary: Send temp exchange code and PKCE verifier to get session
       description: Validates code and verifier and returns session if valid.
       tags: [auth]
+      security: []
       requestBody:
         required: true
         content:
@@ -141,14 +150,12 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /projects:
+  /v1/projects:
     get:
-      operationId: listProjects
+      operationId: listProjectsV1
       summary: List all projects
       description: Returns all Project resources visible to the authenticated user.
       tags: [ projects ]
-      security:
-        - sessionCookie: [ ]
       responses:
         "200":
           description: OK
@@ -161,16 +168,14 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /projects/{projectId}/landscapes:
+  /v1/projects/{projectId}/landscapes:
     get:
-      operationId: listLandscapes
+      operationId: listLandscapesV1
       summary: List all landscapes for a specific project
       parameters:
         - $ref: "#/components/parameters/ProjectPathId"
       description: Returns all landscape resources for a project.
       tags: [ projects ]
-      security:
-        - sessionCookie: [ ]
       responses:
         "200":
           description: OK
@@ -187,17 +192,15 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /projects/{projectId}/stages:
+  /v1/projects/{projectId}/stages:
     get:
-      operationId: listStages
+      operationId: listStagesV1
       summary: List all stages for a project
       parameters:
         - $ref: "#/components/parameters/ProjectPathId"
         - $ref: "#/components/parameters/LandscapeQueryId"
       description: Returns all stage resources for a project. Can be filtered by landscape.
       tags: [projects]
-      security:
-        - sessionCookie: []
       responses:
         "200":
           description: OK
@@ -212,17 +215,15 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /projects/{projectId}/vectorDeployments:
+  /v1/projects/{projectId}/vectorDeployments:
     get:
-      operationId: listVectorDeployments
+      operationId: listVectorDeploymentsV1
       summary: List all vectorDeployments for a project
       parameters:
         - $ref: "#/components/parameters/ProjectPathId"
         - $ref: "#/components/parameters/LandscapeQueryId"
       description: Returns all vectorDeployments resources for a project. Can be filtered by landscape.
       tags: [ projects ]
-      security:
-        - sessionCookie: [ ]
       responses:
         "200":
           description: OK
@@ -237,9 +238,9 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /projects/{projectId}/artifactDeployments:
+  /v1/projects/{projectId}/artifactDeployments:
     get:
-      operationId: listArtifactDeployments
+      operationId: listArtifactDeploymentsV1
       summary: List all artifactDeployments for a project.
       parameters:
         - $ref: "#/components/parameters/ProjectPathId"
@@ -247,8 +248,6 @@ paths:
         - $ref: "#/components/parameters/VectorDeploymentQueryId"
       description: Returns all artifactDeployments resources for a project. Can be filtered by landscape or vectorDeployment.
       tags: [ projects ]
-      security:
-        - sessionCookie: [ ]
       responses:
         "200":
           description: OK
@@ -268,7 +267,7 @@ components:
     sessionCookie:
       type: apiKey
       in: cookie
-      name: kden_session
+      name: kden-session
 
   parameters:
     ProjectPathId:
@@ -301,17 +300,6 @@ components:
         type: string
 
   schemas:
-    HealthStatus:
-      type: object
-      required: [ status ]
-      properties:
-        status:
-          type: string
-
-    ReadinessStatus:
-      allOf:
-        - $ref: "#/components/schemas/HealthStatus"
-
     ProjectList:
       type: object
       required: [ data ]
@@ -465,13 +453,10 @@ components:
           type: string
         familyName:
           type: string
-        middleName:
-          type: string
         email:
           type: string
         roles:
           type: array
-          minItems: 1
           items:
             type: string
 

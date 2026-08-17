@@ -64,7 +64,6 @@ rules:
   - artifactdeployments
   - landscapes
   - projects
-  - stageconfigurations
   - stages
   - stageversions
   - stageversionusages
@@ -73,7 +72,6 @@ rules:
   - vectorassignments
   - vectordeployments
   - vectormigrations
-  - vectorpromotions
   verbs:
   - create
   - delete
@@ -90,7 +88,6 @@ rules:
   - artifactdeployments/status
   - landscapes/status
   - projects/status
-  - stageconfigurations/status
   - stages/status
   - stageversions/status
   - stageversionusages/status
@@ -117,6 +114,7 @@ rules:
   - konfidence.cloud
   resources:
   - vectordata
+  - vectorpromotions
   verbs:
   - create
   - delete

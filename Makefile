@@ -35,10 +35,17 @@ CRD_STAGING_DIR ?= $(REPO_ROOT)/.tmp/crds
 # Merged API package (single group konfidence.cloud).
 API_PATHS = paths="./api/v1alpha1/..."
 
-# Internal controller packages of the konfidence operator.
-# Auto-discover by finding all internal/ subdirs containing setup.go, then append /internal/controller
+# Internal controller packages of the konfidence operator, input to manifest
+# (RBAC) generation. Auto-discover by finding all internal/ subdirs containing
+# setup.go, then append /internal/controller.
 OPERATOR_INTERNAL_DIRS = $(shell find internal -maxdepth 2 -name setup.go -exec dirname {} \; | sed 's|^|./|; s|$$|/internal/controller|' | sort)
 OPERATOR_INTERNAL_PATHS = $(foreach d,$(OPERATOR_INTERNAL_DIRS),paths="$(d)")
+
+# Ginkgo suites of the operator domains, input to test-operators. Discovered
+# separately from the controller packages above: manifests must scan every
+# controller dir, tests must run every suite dir (which may sit outside
+# internal/controller, e.g. domain roots or internal/promotion).
+OPERATOR_SUITE_DIRS = $(shell find internal -maxdepth 2 -name setup.go -exec dirname {} \; | xargs -I{} find {} -name "*suite_test.go" | xargs -n1 dirname | sort -u | sed 's|^|./|')
 
 # Kubernetes / envtest versions
 ENVTEST_K8S_VERSION ?= 1.33
@@ -56,9 +63,19 @@ ENVTEST        ?= setup-envtest
 GOLANGCI_LINT   = golangci-lint
 HELM           ?= helm
 HELM_DOCS      ?= helm-docs
+OAPI_CODEGEN   ?= go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0
 
 ## Image names
 OPERATOR_IMAGE = $(REGISTRY)/konfidence-operator:$(TAG)
+
+## Local API server configuration
+API_OIDC_ENABLED ?= true
+API_OIDC_ISSUER_URL ?= http://localhost:5556/oidc
+API_OIDC_CLIENT_SECRET ?= konfidence-local-secret
+API_OIDC_SCOPES ?= openid,profile,email,groups
+API_OIDC_REDIRECT_URL ?= http://localhost:8090/api/v1/auth/callback
+API_OIDC_ALLOW_RETURN_URLS ?=
+API_SESSION_STORAGE_TYPE ?= in-memory
 
 .PHONY: all
 all: api build
@@ -135,7 +152,12 @@ webhook-certs: ## Generate self-signed certificates for local webhook developmen
 ##@ API
 
 .PHONY: api
-api: hermit manifests generate docs schemas helm-lint ## Run full API generation pipeline (manifests, deepcopy, docs, schemas, helm lint).
+api: hermit manifests generate generate-api docs schemas helm-lint ## Run full API generation pipeline (manifests, deepcopy, OpenAPI clients/server, docs, schemas, helm lint).
+
+.PHONY: generate-api
+generate-api: hermit ## Generate the OpenAPI server and kden API client from api/openapi.yaml.
+	$(OAPI_CODEGEN) -config api/codegen-server.yaml api/openapi.yaml
+	$(OAPI_CODEGEN) -config api/codegen-client.yaml api/openapi.yaml
 
 .PHONY: docs
 docs: hermit ## Generate CRD reference documentation for the konfidence.cloud API.
@@ -186,7 +208,7 @@ test: hermit manifests generate fmt vet test-operators test-pkg test-kden-cli te
 .PHONY: test-operators
 test-operators: hermit manifests setup-envtest ginkgo ## Run unit tests for the konfidence operator.
 	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
-		$(GINKGO) --coverprofile=cover-operators.out -v $(OPERATOR_INTERNAL_DIRS) ./cmd/konfidence/...
+		$(GINKGO) --coverprofile=cover-operators.out -v $(OPERATOR_SUITE_DIRS) ./cmd/konfidence/...
 
 .PHONY: test-pkg
 test-pkg: hermit ginkgo ## Run unit tests for shared pkg packages.
@@ -231,12 +253,20 @@ run: manifests generate fmt vet ## Run the konfidence operator from your host.
 
 .PHONY: run-kden-api
 run-kden-api: fmt vet ## Run the kden API server locally.
-	go run ./cmd/api/main.go
+	go run ./cmd/api/main.go \
+		--oidc-enabled=$(API_OIDC_ENABLED) \
+		--oidc-issuer-url=$(API_OIDC_ISSUER_URL) \
+		--oidc-client-secret=$(API_OIDC_CLIENT_SECRET) \
+		--oidc-scopes=$(API_OIDC_SCOPES) \
+		--oidc-redirect-url=$(API_OIDC_REDIRECT_URL) \
+		--oidc-allow-return-urls=$(API_OIDC_ALLOW_RETURN_URLS) \
+		--session-storage-type=$(API_SESSION_STORAGE_TYPE) \
 
 # These targets are only used for local environments (not in pipeline)
 .PHONY: docker-build
 docker-build: hermit ## Build the konfidence operator container image (local use only).
 	$(CONTAINER_TOOL) build -f Dockerfile --build-arg TARGETPLATFORM=bin --build-arg OPERATOR_NAME=konfidence -t $(OPERATOR_IMAGE) .
+
 .PHONY: docker-push
 docker-push: ## Push the konfidence operator container image.
 	$(CONTAINER_TOOL) push $(OPERATOR_IMAGE)
@@ -249,7 +279,7 @@ endif
 
 .PHONY: install
 install: hermit manifests ## Install CRDs into the cluster specified in ~/.kube/config.
-	$(HELM) upgrade --install konfidence charts/konfidence --set controller.install=false --set crd.keep=false
+	$(HELM) upgrade --install konfidence charts/konfidence --set controller.install=false --set api.enabled=false --set crd.keep=false
 
 .PHONY: uninstall
 uninstall: hermit ## Uninstall CRDs from the cluster. Use ignore-not-found=true to suppress errors.
@@ -297,6 +327,8 @@ deploy: hermit manifests ## Deploy the konfidence operator to the cluster specif
 		--namespace=$(NAMESPACE) \
 		--set image.repository=$(REGISTRY)/konfidence-operator \
 		--set image.tag=$(TAG) \
+		--set api.image.repository=$(REGISTRY)/api \
+		--set api.image.tag=$(TAG) \
 		--set crd.keep=false \
 		$$HELM_EXTRA_ARGS
 

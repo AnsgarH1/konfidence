@@ -78,6 +78,40 @@ api:
     writeTimeout: "10s"
     shutdownTimeout: "15s"
 
+  oidc:
+    enabled: true
+    issuerURL: ""
+    tokenURL: ""
+    authorizationURL: ""
+    deviceAuthURL: ""
+    userInfoURL: ""
+    jwksURL: ""
+    clientId: ""
+    clientSecretRef:
+      name: ""
+      key: client-secret
+    scopes: "openid,profile,email"
+    redirectURL: ""
+    allowReturnUrls: []
+    pkceEnabled: true
+    stateExpiration: 15m
+
+  session:
+    storageType: in-memory
+    cookie:
+      name: "kden-session"
+      httpOnly: true
+      secure: true
+      sameSite: SameSiteStrictMode
+    expiry: 12h
+    cleanupInterval: 15m
+
+  database:
+    maxConns: 10
+    minConns: 5
+    maxConnLifetime: 30m
+    maxConnIdleTime: 5m
+
   # Extra CLI arguments appended to the container args list.
   extraArgs: []
 
@@ -108,7 +142,7 @@ api:
     className: ""
     annotations: {}
     hosts:
-      - host: konfidence-api.example.com
+      - host: ""
         paths:
           - path: /
             pathType: Prefix

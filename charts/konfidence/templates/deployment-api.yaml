@@ -43,12 +43,49 @@ spec:
             - --read-timeout={{ .Values.api.server.readTimeout }}
             - --write-timeout={{ .Values.api.server.writeTimeout }}
             - --shutdown-timeout={{ .Values.api.server.shutdownTimeout }}
+            - --oidc-enabled={{ .Values.api.oidc.enabled }}
+            {{- if .Values.api.oidc.enabled }}
+            - --oidc-issuer-url={{ required "api.oidc.issuerURL is required" .Values.api.oidc.issuerURL }}
+            - --oidc-client-id={{ required "api.oidc.clientId is required" .Values.api.oidc.clientId }}
+            - --oidc-scopes={{ .Values.api.oidc.scopes }}
+            - --oidc-redirect-url={{ required "api.oidc.redirectURL is required" .Values.api.oidc.redirectURL }}
+            {{- with .Values.api.oidc.allowReturnUrls }}
+            - --oidc-allow-return-urls={{ join "," . | quote }}
+            {{- end }}
+            - --oidc-token-url={{ .Values.api.oidc.tokenURL }}
+            - --oidc-authorization-url={{ .Values.api.oidc.authorizationURL }}
+            - --oidc-device-auth-url={{ .Values.api.oidc.deviceAuthURL }}
+            - --oidc-user-info-url={{ .Values.api.oidc.userInfoURL }}
+            - --oidc-jwks-url={{ .Values.api.oidc.jwksURL }}
+            - --oidc-pkce-enabled={{ .Values.api.oidc.pkceEnabled }}
+            - --oidc-state-expiration={{ .Values.api.oidc.stateExpiration }}
+            {{- end }}
+            - --session-cookie-name={{ .Values.api.session.cookie.name }}
+            - --session-cookie-http-only={{ .Values.api.session.cookie.httpOnly }}
+            - --session-cookie-secure={{ .Values.api.session.cookie.secure }}
+            - --session-cookie-same-site={{ .Values.api.session.cookie.sameSite }}
+            - --session-expiry={{ .Values.api.session.expiry }}
+            - --session-cleanup-interval={{ .Values.api.session.cleanupInterval }}
+            - --session-storage-type={{ .Values.api.session.storageType }}
+            - --db-max-conns={{ .Values.api.database.maxConns }}
+            - --db-min-conns={{ .Values.api.database.minConns }}
+            - --db-max-conn-lifetime={{ .Values.api.database.maxConnLifetime }}
+            - --db-max-conn-idle-time={{ .Values.api.database.maxConnIdleTime }}
             {{- with .Values.api.extraArgs }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          {{- with .Values.api.env }}
+          {{- if or .Values.api.oidc.enabled .Values.api.env }}
           env:
+            {{- if .Values.api.oidc.enabled }}
+            - name: API_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "api.oidc.clientSecretRef.name is required" .Values.api.oidc.clientSecretRef.name }}
+                  key: {{ required "api.oidc.clientSecretRef.key is required" .Values.api.oidc.clientSecretRef.key }}
+            {{- end }}
+            {{- with .Values.api.env }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
           {{- with .Values.api.volumeMounts }}
           volumeMounts:

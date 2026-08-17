@@ -7,8 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	konfidence "github.com/konfidence-project/konfidence/api/v1alpha1"
 	"github.com/konfidence-project/konfidence/internal/vectorassembly/internal/vector"
 	"github.com/konfidence-project/konfidence/pkg/ocm/clientcache"
@@ -54,10 +57,16 @@ var (
 	// client from the credential Secret via NewCacheFactory.
 	ocmClient pkgocm.Client
 
-	testVersion    = "2026.1.2-000000000Z"
-	oldTestVersion = "2026.1.1-000000000Z"
-
-	testVersionGenerator = vector.VersionGeneratorFunc(func() string { return testVersion })
+	// testVersionGenerator returns a unique, monotonically increasing concrete version on
+	// every call, mirroring the production timestamp generator (which never repeats). A
+	// fixed version would collide on re-assembly: the OCI Save skips an already-existing
+	// name+version, so the descriptor would never be overwritten and drift could not be
+	// observed. Tests capture the produced version via status.latestVector rather than
+	// asserting a hardcoded constant.
+	testVersionSeq       atomic.Int32
+	testVersionGenerator = vector.VersionGeneratorFunc(func() string {
+		return fmt.Sprintf("2026.1.%d-000000000Z", testVersionSeq.Add(1))
+	})
 
 	vectorSigningKey   pki.RSAKeyPair
 	artifactSigningKey pki.RSAKeyPair
@@ -165,8 +174,12 @@ func startManager() {
 	)
 	Expect(err).NotTo(HaveOccurred())
 
-	Expect(NewVectorTemplateReconciler(mgr, cache, testVersionGenerator).
-		SetupWithManager(mgr)).To(Succeed())
+	vectorCache, err := lru.New[string, vector.Vector](VectorCacheSize)
+	Expect(err).NotTo(HaveOccurred())
+
+	reconciler := NewVectorTemplateReconciler(mgr, cache, vectorCache, testVersionGenerator)
+	reconciler.assemblyPollInterval = 100 * time.Millisecond
+	Expect(reconciler.SetupWithManager(mgr)).To(Succeed())
 
 	managerCtx, managerCancel := context.WithCancel(ctx)
 	go func() {
