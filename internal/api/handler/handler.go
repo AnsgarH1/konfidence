@@ -19,17 +19,23 @@ type apiHandler struct {
 	projectHandler
 }
 
+type KubernetesAccess struct {
+	Client       client.Client
+	CachedReader client.Reader
+}
+
 var _ openapi.StrictServerInterface = (*apiHandler)(nil)
 
-func NewAPIHandler(logger *slog.Logger, k8s client.Client, oidcClient oidc.Client,
+func NewAPIHandler(logger *slog.Logger, kubernetes KubernetesAccess, oidcClient oidc.Client,
 	sessionStore session.Store, cfg config.Parsed) (http.Handler, error) {
 	auth := newAuthHandler(logger, oidcClient, oidc.NewStateCacheStore(cfg), sessionStore, cfg)
-	project := newProjectHandler(k8s)
+	project := newProjectHandler(kubernetes)
 	api := &apiHandler{
 		authHandler:    *auth,
 		projectHandler: *project,
 	}
-	return middleware.SessionAuthentication(logger, sessionStore, cfg, api.handler())
+	authorized := middleware.ProjectAuthorization(logger, project.projects, api.handler())
+	return middleware.SessionAuthentication(logger, sessionStore, cfg, authorized)
 }
 
 func (s *apiHandler) handler() http.Handler {

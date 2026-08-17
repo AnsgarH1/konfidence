@@ -1,125 +1,100 @@
-package handler_test
+package handler
 
 import (
 	"context"
-
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"errors"
+	"testing"
 
 	konfidence "github.com/konfidence-project/konfidence/api/v1alpha1"
-	"github.com/konfidence-project/konfidence/internal/api/handler"
 	"github.com/konfidence-project/konfidence/internal/api/openapi"
 	"github.com/konfidence-project/konfidence/internal/api/session"
+	"github.com/konfidence-project/konfidence/internal/project"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type mockSessionStore struct {
-	sessions map[string]*session.Session
+type projectRepository struct {
+	projects []konfidence.Project
+	err      error
 }
 
-func (m *mockSessionStore) Save(sess *session.Session) (string, error) {
-	id := "test-session-id"
-	m.sessions[id] = sess
-	return id, nil
+func (r *projectRepository) Get(context.Context, string) (*konfidence.Project, error) {
+	return nil, project.ErrNotFound
 }
 
-func (m *mockSessionStore) Get(id string) (*session.Session, error) {
-	return m.sessions[id], nil
+func (r *projectRepository) List(context.Context) ([]konfidence.Project, error) {
+	return r.projects, r.err
 }
 
-func (m *mockSessionStore) Delete(id string) error {
-	delete(m.sessions, id)
-	return nil
-}
-
-func createTestProject(name string, groups []string) *konfidence.Project {
-	return &konfidence.Project{
+func projectFixture(name, displayName string, groups ...string) konfidence.Project {
+	return konfidence.Project{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec: konfidence.ProjectSpec{
-			DisplayName: "Test Project",
+			DisplayName: displayName,
 			RoleBindings: map[string]konfidence.Subjects{
-				"admin": {
-					{
-						Session: &konfidence.SessionSubject{
-							MemberOf: groups,
-						},
-					},
-				},
+				"admin": {{Session: &konfidence.SessionSubject{MemberOf: groups}}},
 			},
 		},
 	}
 }
 
-var _ = Describe("Project", func() {
-	Describe("ListProjects", func() {
-		var (
-			k8sClient      client.Client
-			sessionStore   session.SessionStore
-			projectHandler *handler.ProjectHandler
-			ctx            context.Context
-		)
+func authorizedContext(projectRoles session.ProjectRoles) context.Context {
+	return session.NewContext(context.Background(), &session.Session{Context: session.Context{Roles: projectRoles}})
+}
 
-		BeforeEach(func() {
-			ctx = context.Background()
-			scheme := runtime.NewScheme()
-			Expect(konfidence.AddToScheme(scheme)).To(Succeed())
-			Expect(corev1.AddToScheme(scheme)).To(Succeed())
-			k8sClient = fake.NewClientBuilder().WithScheme(scheme).Build()
+func TestListProjectsV1(t *testing.T) {
+	t.Run("returns only matching projects", func(t *testing.T) {
+		h := &projectHandler{projects: &projectRepository{projects: []konfidence.Project{
+			projectFixture("visible", "Visible Project", "platform-engineers"),
+			projectFixture("hidden", "Hidden Project", "platform-managers"),
+		}}}
 
-			sessionStore = &mockSessionStore{
-				sessions: make(map[string]*session.Session),
-			}
-
-			projectHandler = handler.NewProjectHandler(k8sClient, sessionStore)
-		})
-
-		It("returns 200 with json response", func() {
-			testSession := session.Session{
-				PreferredUsername: "alice",
-				Groups:            []string{"platform-engineers"},
-			}
-			sessionID, _ := sessionStore.Save(&testSession)
-
-			project := createTestProject("test-project-1", []string{"platform-engineers"})
-			Expect(k8sClient.Create(context.Background(), project)).To(Succeed())
-
-			ctx := context.WithValue(context.Background(), session.ContextId, sessionID)
-			response, err := projectHandler.ListProjects(ctx, openapi.ListProjectsRequestObject{})
-
-			listResponse := response.(openapi.ListProjects200JSONResponse)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(listResponse.Data).To(HaveLen(1))
-			Expect(listResponse.Data[0].Name).To(Equal("Test Project"))
-		})
-
-		It("returns empty list for non-matching user groups", func() {
-			testSession := session.Session{
-				PreferredUsername: "alice-2",
-				Groups:            []string{"platform-managers"},
-			}
-			sessionID, _ := sessionStore.Save(&testSession)
-
-			project := createTestProject("test-project-2", []string{"platform-engineers"})
-			Expect(k8sClient.Create(ctx, project)).To(Succeed())
-
-			ctx := context.WithValue(context.Background(), session.ContextId, sessionID)
-			response, err := projectHandler.ListProjects(ctx, openapi.ListProjectsRequestObject{})
-
-			listResponse := response.(openapi.ListProjects200JSONResponse)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(listResponse.Data).To(BeEmpty())
-		})
-
-		It("returns 401 for incorrect session", func() {
-			ctx := context.WithValue(context.Background(), session.ContextId, "invalid-session")
-
-			_, err := projectHandler.ListProjects(ctx, openapi.ListProjectsRequestObject{})
-
-			Expect(err).NotTo(HaveOccurred())
-		})
+		response, err := h.ListProjectsV1(authorizedContext(session.ProjectRoles{
+			"visible": {"admin"},
+		}), openapi.ListProjectsV1RequestObject{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		projects := response.(openapi.ListProjectsV1200JSONResponse).Data
+		if len(projects) != 1 || projects[0].Id != "visible" || projects[0].Name != "Visible Project" {
+			t.Fatalf("unexpected projects: %#v", projects)
+		}
 	})
-})
+
+	t.Run("returns an empty list when no project matches", func(t *testing.T) {
+		h := &projectHandler{projects: &projectRepository{projects: []konfidence.Project{
+			projectFixture("hidden", "Hidden Project", "platform-engineers"),
+		}}}
+
+		response, err := h.ListProjectsV1(authorizedContext(session.ProjectRoles{}), openapi.ListProjectsV1RequestObject{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if projects := response.(openapi.ListProjectsV1200JSONResponse).Data; len(projects) != 0 {
+			t.Fatalf("expected no projects, got %#v", projects)
+		}
+	})
+
+	t.Run("returns unauthorized without an identity", func(t *testing.T) {
+		h := &projectHandler{projects: &projectRepository{}}
+
+		response, err := h.ListProjectsV1(context.Background(), openapi.ListProjectsV1RequestObject{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := response.(openapi.ListProjectsV1401JSONResponse); !ok {
+			t.Fatalf("expected unauthorized response, got %T", response)
+		}
+	})
+
+	t.Run("returns repository errors", func(t *testing.T) {
+		repositoryErr := errors.New("Kubernetes unavailable")
+		h := &projectHandler{projects: &projectRepository{err: repositoryErr}}
+
+		response, err := h.ListProjectsV1(authorizedContext(session.ProjectRoles{
+			"visible": {"admin"},
+		}), openapi.ListProjectsV1RequestObject{})
+		if response != nil || !errors.Is(err, repositoryErr) {
+			t.Fatalf("expected repository error, got response=%T err=%v", response, err)
+		}
+	})
+}

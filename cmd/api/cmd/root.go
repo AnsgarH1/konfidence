@@ -161,6 +161,17 @@ func startServer(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to build k8s client: %w", err)
 	}
 
+	informerCache, err := newInformerBackedCache(ctx, k8sConfig, scheme,
+		&konfidence.Project{},
+	)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := informerCache.Close(); err != nil {
+			logger.Error("informer cache stopped with an error", "error", err)
+		}
+	}()
 	oidcClient := oidc.NewOIDCClient(oidc.Config{})
 	if parsed.OIDC.Enabled {
 		oidcClient = oidc.NewOIDCClient(oidc.Config{
@@ -225,7 +236,10 @@ func startServer(cmd *cobra.Command, _ []string) error {
 		sessionStore = session.NewInMemoryStore(parsed)
 	}
 
-	api, err := handler.NewAPIHandler(logger, k8sClient, *oidcClient, sessionStore, parsed)
+	api, err := handler.NewAPIHandler(logger, handler.KubernetesAccess{
+		Client:       k8sClient,
+		CachedReader: informerCache.CachedReader(),
+	}, *oidcClient, sessionStore, parsed)
 	if err != nil {
 		return fmt.Errorf("failed to create API handler: %w", err)
 	}

@@ -3,38 +3,38 @@ package handler
 import (
 	"context"
 
-	"github.com/konfidence-project/konfidence/api/v1alpha1"
 	"github.com/konfidence-project/konfidence/internal/api/openapi"
 	"github.com/konfidence-project/konfidence/internal/api/session"
+	projectdomain "github.com/konfidence-project/konfidence/internal/project"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type projectHandler struct{ k8s client.Client }
-
-func newProjectHandler(k8s client.Client) *projectHandler {
-	return &projectHandler{k8s: k8s}
+type projectHandler struct {
+	k8s      client.Client
+	projects projectdomain.Repository
 }
 
-func (h *projectHandler) ListProjectsV1(_ context.Context, _ openapi.ListProjectsV1RequestObject) (openapi.ListProjectsV1ResponseObject, error) {
-	sessionId, err := session.GetSessionIdFromContext(ctx)
+func newProjectHandler(kubernetes KubernetesAccess) *projectHandler {
+	return &projectHandler{
+		k8s:      kubernetes.Client,
+		projects: projectdomain.NewRepository(kubernetes.CachedReader),
+	}
+}
+
+func (h *projectHandler) ListProjectsV1(ctx context.Context, _ openapi.ListProjectsV1RequestObject) (openapi.ListProjectsV1ResponseObject, error) {
+	identity, err := session.FromContext(ctx)
 	if err != nil {
-		return openapi.ListProjects401JSONResponse{}, nil
+		return openapi.ListProjectsV1401JSONResponse{}, nil
 	}
 
-	storedSession, err := h.sessionStore.Get(sessionId)
-	if err != nil || storedSession == nil {
-		return openapi.ListProjects401JSONResponse{}, nil
-	}
-
-	// Fetch all Project CRs from the cluster
-	var projects v1alpha1.ProjectList
-	if err := h.k8s.List(ctx, &projects); err != nil {
+	projects, err := h.projects.List(ctx)
+	if err != nil {
 		return nil, err
 	}
 
-	var result []openapi.Project
-	for _, p := range projects.Items {
-		if hasAccess(storedSession.Groups, p.Spec.RoleBindings) {
+	result := make([]openapi.Project, 0, len(projects))
+	for _, p := range projects {
+		if len(identity.Roles[p.Name]) > 0 {
 			result = append(result, openapi.Project{
 				Id:   p.Name,
 				Name: p.Spec.DisplayName,
@@ -43,27 +43,6 @@ func (h *projectHandler) ListProjectsV1(_ context.Context, _ openapi.ListProject
 	}
 
 	return openapi.ListProjectsV1200JSONResponse{Data: result}, nil
-}
-
-func hasAccess(userGroups []string, roleBindings map[string]v1alpha1.Subjects) bool {
-	groupSet := make(map[string]struct{}, len(userGroups))
-	for _, g := range userGroups {
-		groupSet[g] = struct{}{}
-	}
-
-	for _, subjects := range roleBindings {
-		for _, s := range subjects {
-			if s.Session != nil {
-				for _, bindGroup := range s.Session.MemberOf {
-					if _, ok := groupSet[bindGroup]; ok {
-						return true
-					}
-				}
-			}
-		}
-	}
-
-	return false
 }
 
 func (h *projectHandler) ListLandscapesV1(_ context.Context, _ openapi.ListLandscapesV1RequestObject) (openapi.ListLandscapesV1ResponseObject, error) {

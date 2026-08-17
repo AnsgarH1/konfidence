@@ -18,16 +18,18 @@ type Session struct {
 	Expiry       int64   `json:"expiry"`
 }
 
+type ProjectRoles map[string][]string
+
 // Context represents the session subset stored in the context.
 type Context struct {
-	ID                string   `json:"-"`
-	Name              *string  `json:"name,omitempty"`
-	Email             *string  `json:"email,omitempty"`
-	GivenName         *string  `json:"given_name,omitempty"`
-	FamilyName        *string  `json:"family_name,omitempty"`
-	PreferredUsername *string  `json:"preferred_username,omitempty"`
-	Roles             []string `json:"roles,omitempty"`
-	Groups            []string `json:"groups,omitempty"`
+	ID                string       `json:"-"`
+	Name              *string      `json:"name,omitempty"`
+	Email             *string      `json:"email,omitempty"`
+	GivenName         *string      `json:"given_name,omitempty"`
+	FamilyName        *string      `json:"family_name,omitempty"`
+	PreferredUsername *string      `json:"preferred_username,omitempty"`
+	Roles             ProjectRoles `json:"roles,omitempty"`
+	Groups            []string     `json:"groups,omitempty"`
 }
 
 func NewContext(ctx context.Context, session *Session) context.Context {

@@ -202,11 +202,11 @@ func (a *authHandler) GetIdentityV1(ctx context.Context, _ openapi.GetIdentityV1
 	}
 
 	return openapi.GetIdentityV1200JSONResponse{
-		Email:      lo.FromPtr(storedSession.Email),
-		Name:       lo.FromPtr(storedSession.Name),
-		GivenName:  lo.FromPtr(storedSession.GivenName),
-		FamilyName: lo.FromPtr(storedSession.FamilyName),
-		Roles:      storedSession.Roles,
+		Email:        lo.FromPtr(storedSession.Email),
+		Name:         lo.FromPtr(storedSession.Name),
+		GivenName:    lo.FromPtr(storedSession.GivenName),
+		FamilyName:   lo.FromPtr(storedSession.FamilyName),
+		ProjectRoles: storedSession.Roles,
 	}, nil
 }
 
